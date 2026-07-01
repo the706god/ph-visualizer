@@ -1111,8 +1111,10 @@ const MOOD_PALETTES = {
 const state = {
   audioFile: null,
   audioBuffer: null,
-  audioElement: null,
+  audioElement: new Audio(), // CRITICAL FIX: Created ONCE globally to prevent InvalidStateError
   audioContext: null,
+  analyserNode: null,
+  sourceNode: null,
   isPlaying: false,
   logoImage: null,
   logoDataURL: null,
@@ -1134,13 +1136,11 @@ const state = {
   particles: [],
   revealStartTime: null,
   exporting: false,
-  lastCalcFrame: -1,
-  lastDataArray: null,
   bgImage: null,
   bgOpacity: 40,
   bgBlur: 4,
   bgDarken: 40,
-  renderMode: "silent", // "silent" or "live"
+  renderMode: "silent",
   logoLibrary: JSON.parse(localStorage.getItem("ph_logo_library") || "[]"),
   presets: JSON.parse(localStorage.getItem("ph_presets") || "[]"),
 };
@@ -1171,6 +1171,17 @@ audioZone.addEventListener("drop", (e) => {
 });
 audioInput.addEventListener("change", (e) => { if (e.target.files[0]) handleAudioFile(e.target.files[0]); });
 
+// Initialize Web Audio API graph exactly ONCE
+function initWebAudio() {
+  if (state.audioContext) return;
+  state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  state.analyserNode = state.audioContext.createAnalyser();
+  state.analyserNode.fftSize = 256;
+  state.sourceNode = state.audioContext.createMediaElementSource(state.audioElement);
+  state.sourceNode.connect(state.analyserNode);
+  state.analyserNode.connect(state.audioContext.destination);
+}
+
 async function handleAudioFile(file) {
   state.audioFile = file;
   audioZone.style.display = "none";
@@ -1178,27 +1189,28 @@ async function handleAudioFile(file) {
   $("#trackName").textContent = file.name;
   $("#analyzing").classList.add("visible");
 
-  const arrayBuffer = await file.arrayBuffer();
+  // Setup the audio routing graph
+  initWebAudio();
 
-  if (!state.audioContext) {
-    state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-  }
-
-  state.audioBuffer = await state.audioContext.decodeAudioData(arrayBuffer.slice(0));
-
-  state.audioElement = new Audio(URL.createObjectURL(file));
-
-  state.audioElement.addEventListener("ended", () => {
+  // Reset and load the new file into the singleton audio element
+  state.audioElement.pause();
+  state.audioElement.src = URL.createObjectURL(file);
+  state.audioElement.load();
+  
+  state.audioElement.onended = () => {
     state.isPlaying = false;
     $("#playPauseBtn").innerHTML = "&#9654;";
-  });
+  };
 
-  state.audioElement.addEventListener("loadedmetadata", () => {
+  state.audioElement.onloadedmetadata = () => {
     $("#seekBar").max = state.audioElement.duration;
     updatePlayerTime();
     $("#exportDuration").value = Math.min(15, Math.floor(state.audioElement.duration));
-  });
+  };
 
+  // Decode offline for mood analysis
+  const arrayBuffer = await file.arrayBuffer();
+  state.audioBuffer = await state.audioContext.decodeAudioData(arrayBuffer.slice(0));
   analyzeAudio(state.audioBuffer);
 }
 
@@ -1206,20 +1218,18 @@ async function handleAudioFile(file) {
 $("#playPauseBtn").addEventListener("click", togglePlayback);
 
 $("#seekBar").addEventListener("input", () => {
-  if (state.audioElement) {
+  if (state.audioElement.src) {
     state.audioElement.currentTime = parseFloat($("#seekBar").value);
   }
 });
 
 $("#audioRemove").addEventListener("click", () => {
-  if (state.audioElement) { state.audioElement.pause(); }
+  state.audioElement.pause();
+  state.audioElement.removeAttribute('src');
   state.audioFile = null;
   state.audioBuffer = null;
-  state.audioElement = null;
   state.isPlaying = false;
   state.mood = null;
-  state.lastCalcFrame = -1;
-  state.lastDataArray = null;
   $("#playerTransport").classList.remove("visible");
   audioZone.style.display = "";
   $("#moodDisplay").classList.remove("visible");
@@ -1234,22 +1244,28 @@ $("#exportFullLength").addEventListener("click", () => {
 });
 
 function togglePlayback() {
-  if (!state.audioElement) return;
+  if (!state.audioElement.src) return;
+  
+  // Browsers require a user gesture to resume the AudioContext
+  if (state.audioContext && state.audioContext.state === "suspended") {
+    state.audioContext.resume();
+  }
 
   if (state.isPlaying) {
     state.audioElement.pause();
     state.isPlaying = false;
     $("#playPauseBtn").innerHTML = "&#9654;";
   } else {
-    state.audioElement.play();
-    state.isPlaying = true;
-    state.revealStartTime = performance.now();
-    $("#playPauseBtn").innerHTML = "&#10074;&#10074;";
+    state.audioElement.play().then(() => {
+      state.isPlaying = true;
+      state.revealStartTime = performance.now();
+      $("#playPauseBtn").innerHTML = "&#10074;&#10074;";
+    }).catch(err => console.error("Playback failed:", err));
   }
 }
 
 function updatePlayerTime() {
-  if (!state.audioElement) return;
+  if (!state.audioElement.src) return;
   const cur = state.audioElement.currentTime || 0;
   const dur = state.audioElement.duration || 0;
   $("#playerTime").textContent = `${fmtTime(cur)} / ${fmtTime(dur)}`;
@@ -1279,7 +1295,6 @@ function analyzeAudio(buffer) {
   const energy = Math.min(1, rms * 5);
 
   const fftSize = 2048;
-  
   const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
   const offlineCtx = new OfflineCtx(1, buffer.length, sampleRate);
   
@@ -1330,7 +1345,7 @@ function analyzeAudio(buffer) {
     state.darkness = darkness;
     state.tempo = tempoEstimate;
     state.mood = mood;
-    state.palette = MOOD_PALETTES[mood];
+    state.palette = [...MOOD_PALETTES[mood]];
 
     updateMoodDisplay();
     selectMoodQuote();
@@ -1711,11 +1726,9 @@ function renderCanvas(exportMode = false, timestamp = null, freqOverride = null)
   // Background image layer
   if (state.bgImage) {
     ctx.save();
-    // Apply blur
     if (state.bgBlur > 0) {
       ctx.filter = 'blur(' + state.bgBlur + 'px)';
     }
-    // Draw image covering the canvas (cover fit)
     ctx.globalAlpha = state.bgOpacity / 100;
     const imgRatio = state.bgImage.width / state.bgImage.height;
     const canvasRatio = w / h;
@@ -1729,7 +1742,6 @@ function renderCanvas(exportMode = false, timestamp = null, freqOverride = null)
     }
     ctx.drawImage(state.bgImage, sx, sy, sw, sh, 0, 0, w, h);
     ctx.filter = 'none';
-    // Darken overlay
     if (state.bgDarken > 0) {
       ctx.globalAlpha = state.bgDarken / 100;
       ctx.fillStyle = '#000000';
@@ -1778,17 +1790,11 @@ function renderCanvas(exportMode = false, timestamp = null, freqOverride = null)
   if (state.animations.waveform) {
     let dataArray = freqOverride;
     
-    // Live visualizer directly from decoded audio buffer (Bypasses Browser Security Mutes)
-    if (!dataArray && state.audioBuffer && state.audioElement) {
-      const fps = 30;
-      const frameIdx = Math.floor(state.audioElement.currentTime * fps);
-      
-      // Only recalculate the FFT if the video frame has advanced
-      if (state.lastCalcFrame !== frameIdx) {
-        state.lastCalcFrame = frameIdx;
-        state.lastDataArray = getFreqDataForFrame(frameIdx, fps);
-      }
-      dataArray = state.lastDataArray;
+    // Live visualizer directly from native AnalyserNode
+    if (!dataArray && state.analyserNode && state.isPlaying) {
+      const bufferLength = state.analyserNode.frequencyBinCount;
+      dataArray = new Uint8Array(bufferLength);
+      state.analyserNode.getByteFrequencyData(dataArray);
     }
 
     if (dataArray && dataArray.length > 0) {
@@ -1811,12 +1817,10 @@ function renderCanvas(exportMode = false, timestamp = null, freqOverride = null)
         const x = i * barWidth + 1;
         const bw = barWidth - 2;
 
-        // Rounded top
         ctx.beginPath();
         ctx.roundRect(x, waveY - barH, bw, barH, [2, 2, 0, 0]);
         ctx.fill();
 
-        // Mirror reflection
         ctx.globalAlpha = 0.15;
         ctx.fillRect(x, waveY + 2, bw, barH * 0.35);
         ctx.globalAlpha = 1;
@@ -1873,7 +1877,7 @@ function renderCanvas(exportMode = false, timestamp = null, freqOverride = null)
     ctx.globalAlpha = 1;
   }
 
-  // Logo — sized/positioned by sliders, with contrast glow
+  // Logo
   if (state.logoImage) {
     const logoRevealAlpha = state.animations.logoReveal ? easeOut(reveal) : 1;
     const logoAnimScale = state.animations.logoReveal ? 0.9 + easeOut(reveal) * 0.1 : 1;
@@ -1891,7 +1895,6 @@ function renderCanvas(exportMode = false, timestamp = null, freqOverride = null)
     ctx.translate(logoX + logoW / 2, logoY);
     ctx.scale(logoAnimScale, logoAnimScale);
 
-    // Contrast glow behind logo
     ctx.shadowColor = 'rgba(255,255,255,0.35)';
     ctx.shadowBlur = 25;
     ctx.shadowOffsetX = 0;
@@ -1947,8 +1950,7 @@ $("#exportImage").addEventListener("click", () => {
   renderCanvas(false);
 });
 
-// ─── Frequency data from audio buffer for a given frame ───
-// Now driving both the LIVE PREVIEW and the EXPORT
+// ─── Frequency data from audio buffer for offline export ───
 function getFreqDataForFrame(frameIdx, fps) {
   if (!state.audioBuffer) return null;
   const channelData = state.audioBuffer.getChannelData(0);
@@ -1980,7 +1982,7 @@ function getFreqDataForFrame(frameIdx, fps) {
   return freqData;
 }
 
-// ─── MP4 export: H.264 video + AAC audio in ONE file via WebCodecs + mp4-muxer ───
+// ─── MP4 export: H.264 video + AAC audio ───
 $("#exportVideo").addEventListener("click", async () => {
   if (state.exporting) return;
   state.exporting = true;
@@ -1995,14 +1997,12 @@ $("#exportVideo").addEventListener("click", async () => {
   progressText.textContent = "Loading MP4 encoder...";
   progressFill.style.width = "0%";
 
-  // Check WebCodecs support
   if (typeof VideoEncoder === "undefined") {
     progressText.textContent = "Your browser does not support video encoding. Please use Chrome, Edge, or Safari 16.4+.";
     setTimeout(() => { progressEl.classList.remove("visible"); btn.disabled = false; $("#exportImage").disabled = false; state.exporting = false; }, 3000);
     return;
   }
 
-  // Load mp4-muxer from CDN
   let Mp4Muxer;
   try {
     Mp4Muxer = await import("https://cdn.jsdelivr.net/npm/mp4-muxer@5/+esm");
@@ -2020,14 +2020,12 @@ $("#exportVideo").addEventListener("click", async () => {
   const encW = w % 2 === 0 ? w : w - 1;
   const encH = h % 2 === 0 ? h : h - 1;
 
-  // Audio params
   const numCh = state.audioBuffer ? Math.min(state.audioBuffer.numberOfChannels, 2) : 2;
   const sampleRate = state.audioBuffer ? state.audioBuffer.sampleRate : 44100;
 
   progressText.textContent = "Initializing encoders...";
   progressFill.style.width = "3%";
 
-  // Create mp4-muxer
   const muxer = new Mp4Muxer.Muxer({
     target: new Mp4Muxer.ArrayBufferTarget(),
     video: { codec: "avc", width: encW, height: encH },
@@ -2036,19 +2034,17 @@ $("#exportVideo").addEventListener("click", async () => {
     firstTimestampBehavior: "offset",
   });
 
-  // Video encoder
   const videoEncoder = new VideoEncoder({
     output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
     error: (e) => console.error("VideoEncoder error:", e),
   });
 
-  // Find a supported H.264 codec string
-  let videoCodec = "avc1.640028"; // High profile
+  let videoCodec = "avc1.640028";
   try {
     const support = await VideoEncoder.isConfigSupported({
       codec: videoCodec, width: encW, height: encH, bitrate: 5000000, framerate: fps,
     });
-    if (!support.supported) videoCodec = "avc1.42001e"; // Baseline fallback
+    if (!support.supported) videoCodec = "avc1.42001e";
   } catch (e) {
     videoCodec = "avc1.42001e";
   }
@@ -2062,7 +2058,6 @@ $("#exportVideo").addEventListener("click", async () => {
     latencyMode: "quality",
   });
 
-  // Audio encoder
   const audioEncoder = new AudioEncoder({
     output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
     error: (e) => console.error("AudioEncoder error:", e),
@@ -2075,11 +2070,9 @@ $("#exportVideo").addEventListener("click", async () => {
     bitrate: 192000,
   });
 
-  // Set canvas to export resolution
   canvas.width = encW;
   canvas.height = encH;
 
-  // Pause any existing playback
   if (state.audioElement && state.isPlaying) {
     state.audioElement.pause();
     state.isPlaying = false;
@@ -2092,22 +2085,18 @@ $("#exportVideo").addEventListener("click", async () => {
 
   progressText.textContent = "Encoding frames... 0 / " + totalFrames;
 
-  // Render and encode each frame
   for (let frame = 0; frame < totalFrames; frame++) {
     const timestampUs = Math.round(frame * (1000000 / fps));
     const fakeTimestamp = frame * frameInterval;
 
-    // Render canvas frame
     const freqData = getFreqDataForFrame(frame, fps);
     renderCanvas(true, fakeTimestamp, freqData);
 
-    // Encode video frame
     const videoFrame = new VideoFrame(canvas, { timestamp: timestampUs });
-    const keyFrame = frame % (fps * 2) === 0; // keyframe every 2 seconds
+    const keyFrame = frame % (fps * 2) === 0;
     videoEncoder.encode(videoFrame, { keyFrame: keyFrame });
     videoFrame.close();
 
-    // Encode audio chunk for this frame
     if (state.audioBuffer) {
       const audioStart = frame * audioSamplesPerFrame;
       const chunkSize = audioSamplesPerFrame;
@@ -2133,7 +2122,6 @@ $("#exportVideo").addEventListener("click", async () => {
       audioData.close();
     }
 
-    // Yield to UI thread periodically
     if (frame % 5 === 0) {
       const pct = 3 + Math.floor((frame / totalFrames) * 87);
       progressFill.style.width = pct + "%";
@@ -2141,7 +2129,6 @@ $("#exportVideo").addEventListener("click", async () => {
       await new Promise(r => setTimeout(r, 0));
     }
 
-    // Flush periodically to prevent memory buildup
     if (frame % 90 === 89) {
       await videoEncoder.flush();
       await audioEncoder.flush();
@@ -2163,7 +2150,6 @@ $("#exportVideo").addEventListener("click", async () => {
   const mp4Blob = new Blob([muxer.target.buffer], { type: "video/mp4" });
   const filename = "prompthaus-" + (state.mood || "content") + "-" + state.format.replace(":", "x") + ".mp4";
 
-  // Download
   const link = document.createElement("a");
   link.download = filename;
   link.href = URL.createObjectURL(mp4Blob);
@@ -2184,7 +2170,7 @@ $("#exportVideo").addEventListener("click", async () => {
 });
 
 // ═══════════════════════════════════════════════════
-// UTILITY
+// UTILITY & PRESETS
 // ═══════════════════════════════════════════════════
 function wrapText(context, text, maxWidth) {
   const words = text.split(" ");
@@ -2221,9 +2207,6 @@ function darkenColor(hex, factor) {
 
 function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
 
-// ═══════════════════════════════════════════════════
-// RENDER MODE TOGGLE (Silent / Live)
-// ═══════════════════════════════════════════════════
 document.querySelectorAll(".render-mode-btn").forEach(btn => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".render-mode-btn").forEach(b => b.classList.remove("active"));
@@ -2232,9 +2215,6 @@ document.querySelectorAll(".render-mode-btn").forEach(btn => {
   });
 });
 
-// ═══════════════════════════════════════════════════
-// PRESETS
-// ═══════════════════════════════════════════════════
 function savePreset() {
   const name = prompt("Preset name:");
   if (!name || !name.trim()) return;
@@ -2318,7 +2298,6 @@ function renderPresets() {
 $("#savePreset").addEventListener("click", savePreset);
 renderPresets();
 
-// Allow users to manually change colors
 document.querySelectorAll(".palette-swatch").forEach((sw, i) => {
   sw.addEventListener("input", (e) => {
     state.palette[i] = e.target.value;
