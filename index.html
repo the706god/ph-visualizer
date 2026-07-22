@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PromptHaus Content Engine</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<header class="app-header">
+  <div>
+    <div class="app-title">Prompt<span>Haus</span> Content Engine</div>
+    <div class="app-subtitle">Visualizer Builder</div>
+  </div>
+</header>
+
+<div class="main-layout">
+  <div class="controls-panel">
+
+    <div class="section">
+      <div class="section-label">Audio Source</div>
+      <div class="upload-zone" id="audioZone">
+        <div class="upload-icon">&#9835;</div>
+        <div class="upload-text"><strong>Drop audio file</strong><br>or click to browse<br>MP3, WAV, FLAC, AAC, M4A, OGG, AIFF</div>
+      </div>
+      <input type="file" id="audioInput" accept="audio/*,.mp3,.wav,.flac,.aac,.m4a,.ogg,.opus,.mp4,.mov,.wma,.aiff,.aif" hidden>
+
+      <div class="player-transport" id="playerTransport">
+        <div class="player-top-row">
+          <span class="player-track-name" id="trackName"></span>
+          <button class="player-remove" id="audioRemove">&times;</button>
+        </div>
+        <div class="player-controls">
+          <button class="play-pause-btn" id="playPauseBtn">&#9654;</button>
+          <div class="seek-bar-container">
+            <input type="range" class="seek-bar" id="seekBar" min="0" max="100" value="0" step="0.1">
+            <span class="player-time" id="playerTime">0:00 / 0:00</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="analyzing" id="analyzing">
+        <div class="analyzing-dot"></div>
+        <span>Analyzing mood and energy...</span>
+      </div>
+      <div class="mood-display" id="moodDisplay">
+        <div class="mood-label" id="moodLabel">&mdash;</div>
+        <div class="mood-meters">
+          <div class="meter">
+            <span class="meter-label">Energy</span>
+            <div class="meter-bar"><div class="meter-fill" id="meterEnergy" style="width:0%;background:var(--accent)"></div></div>
+          </div>
+          <div class="meter">
+            <span class="meter-label">Warmth</span>
+            <div class="meter-bar"><div class="meter-fill" id="meterWarmth" style="width:0%;background:#d4a373"></div></div>
+          </div>
+          <div class="meter">
+            <span class="meter-label">Darkness</span>
+            <div class="meter-bar"><div class="meter-fill" id="meterDarkness" style="width:0%;background:#4a4a6a"></div></div>
+          </div>
+          <div class="meter">
+            <span class="meter-label">Tempo</span>
+            <div class="meter-bar"><div class="meter-fill" id="meterTempo" style="width:0%;background:#6a8a6a"></div></div>
+          </div>
+        </div>
+        <div class="palette-row" id="paletteRow">
+          <input type="color" class="palette-swatch" id="color0">
+          <input type="color" class="palette-swatch" id="color1">
+          <input type="color" class="palette-swatch" id="color2">
+          <input type="color" class="palette-swatch" id="color3">
+          <input type="color" class="palette-swatch" id="color4">
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Brand Logo</div>
+      <div class="logo-library" id="logoLibrary"></div>
+      <div class="upload-zone" id="logoZone" style="padding:1.2rem 1rem">
+        <div class="upload-icon">&#9672;</div>
+        <div class="upload-text"><strong>Drop logo PNG</strong><br>Transparent background preferred</div>
+      </div>
+      <input type="file" id="logoInput" accept="image/png,image/svg+xml,image/webp" hidden>
+      <div class="logo-controls" id="logoControls">
+        <div class="logo-slider-row">
+          <span class="logo-slider-label">Size</span>
+          <input type="range" class="logo-slider" id="logoSize" min="5" max="50" value="30">
+        </div>
+        <div class="logo-slider-row">
+          <span class="logo-slider-label">X Pos</span>
+          <input type="range" class="logo-slider" id="logoPosX" min="0" max="100" value="10">
+        </div>
+        <div class="logo-slider-row">
+          <span class="logo-slider-label">Y Pos</span>
+          <input type="range" class="logo-slider" id="logoPosY" min="0" max="100" value="90">
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Background Image</div>
+      <div class="upload-zone" id="bgZone" style="padding:1rem">
+        <div class="upload-icon" style="font-size:1.2rem">&#9638;</div>
+        <div class="upload-text"><strong>Drop background image</strong><br>or click to browse</div>
+      </div>
+      <input type="file" id="bgInput" accept="image/*" hidden>
+      <div class="bg-or-divider">or generate from text</div>
+      <div class="bg-gen-row">
+        <input class="bg-gen-input" id="bgPrompt" placeholder="Dark cinematic cityscape at night...">
+        <button class="btn-generate" id="bgGenerate">Generate</button>
+      </div>
+      <div class="bg-image-preview" id="bgPreview">
+        <img id="bgPreviewImg">
+        <button class="bg-remove" id="bgRemove">&times;</button>
+      </div>
+      <div class="bg-controls" id="bgControls">
+        <div class="logo-slider-row">
+          <span class="logo-slider-label">Opacity</span>
+          <input type="range" class="logo-slider" id="bgOpacity" min="5" max="100" value="40">
+        </div>
+        <div class="logo-slider-row">
+          <span class="logo-slider-label">Blur</span>
+          <input type="range" class="logo-slider" id="bgBlur" min="0" max="30" value="4">
+        </div>
+        <div class="logo-slider-row">
+          <span class="logo-slider-label">Darken</span>
+          <input type="range" class="logo-slider" id="bgDarken" min="0" max="90" value="40">
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Quote</div>
+      <div class="quote-selector" id="quoteSelector">
+        <button class="quote-category active" data-cat="prompthaus">PromptHaus</button>
+        <button class="quote-category" data-cat="napoleon">Napoleon Hill</button>
+        <button class="quote-category" data-cat="48laws">48 Laws</button>
+        <button class="quote-category" data-cat="godin">Seth Godin</button>
+        <button class="quote-category" data-cat="chinese">Chinese Proverbs</button>
+        <button class="quote-category" data-cat="personal">My Bank</button>
+      </div>
+      <textarea class="quote-textarea" id="quoteText" placeholder="Quote will appear here based on mood..."></textarea>
+      <input class="quote-attribution" id="quoteAttribution" placeholder="&mdash; ATTRIBUTION">
+      <div class="quote-actions">
+        <button class="btn-sm" id="shuffleQuote">Shuffle</button>
+        <button class="btn-sm" id="saveToBank">Save to Bank</button>
+        <button class="btn-sm" id="openBank">My Bank</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Format</div>
+      <div class="format-toggle">
+        <button class="format-btn active" data-format="9:16">9 : 16</button>
+        <button class="format-btn" data-format="1:1">1 : 1</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Animation</div>
+      <div class="toggle-row">
+        <span class="toggle-label">Waveform Visualizer</span>
+        <div class="toggle-switch on" data-toggle="waveform"></div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Background Particles</span>
+        <div class="toggle-switch on" data-toggle="particles"></div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Logo Reveal</span>
+        <div class="toggle-switch on" data-toggle="logoReveal"></div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Text Reveal</span>
+        <div class="toggle-switch on" data-toggle="textReveal"></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Presets</div>
+      <div class="presets-bar" id="presetsBar"></div>
+      <button class="btn-sm" id="savePreset">Save Current as Preset</button>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Export</div>
+      <div class="render-mode-toggle">
+        <button class="render-mode-btn active" data-mode="silent" id="modeSilent">Silent Render</button>
+        <button class="render-mode-btn" data-mode="live" id="modeLive">Live Render</button>
+      </div>
+      <div class="export-section">
+        <button class="btn-export primary" id="exportImage" disabled>Export Static Image (PNG)</button>
+        <button class="btn-export" id="exportVideo" disabled>Export Video with Audio (MP4)</button>
+        <div class="duration-row">
+          <span class="duration-label">Duration</span>
+          <input class="duration-input" id="exportDuration" type="number" min="3" max="300" value="15">
+          <span class="duration-label">sec</span>
+          <button class="btn-sm" id="exportFullLength" style="margin-left:auto">Full Track</button>
+        </div>
+      </div>
+      <div class="export-progress" id="exportProgress">
+        <div class="export-progress-text" id="exportProgressText">Preparing...</div>
+        <div class="export-progress-bar"><div class="export-progress-fill" id="exportProgressFill"></div></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="preview-panel" id="previewPanel">
+    <div class="canvas-container" id="canvasContainer">
+      <canvas id="mainCanvas"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="bankModal">
+  <div class="modal">
+    <div class="modal-title">Personal Quote Bank</div>
+    <div class="modal-input-row">
+      <input class="modal-input" id="bankNewQuote" placeholder="Add a new quote...">
+      <button class="btn-sm" id="bankAddBtn">Add</button>
+    </div>
+    <div id="bankList"></div>
+    <div style="margin-top:1rem;text-align:right">
+      <button class="btn-sm" id="bankClose">Close</button>
+    </div>
+  </div>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
