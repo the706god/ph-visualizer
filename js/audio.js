@@ -9,7 +9,7 @@ export function initWebAudio() {
   state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
   state.analyserNode = state.audioContext.createAnalyser();
   state.analyserNode.fftSize = 256;
-  
+
   // Create MediaElementSource and connect it
   state.sourceNode = state.audioContext.createMediaElementSource(state.audioElement);
   state.sourceNode.connect(state.analyserNode);
@@ -27,7 +27,7 @@ export async function handleAudioFile(file) {
   state.audioElement.pause();
   state.audioElement.src = URL.createObjectURL(file);
   state.audioElement.load();
-  
+
   state.audioElement.onended = () => {
     state.isPlaying = false;
     $("#playPauseBtn").innerHTML = "&#9654;";
@@ -59,7 +59,7 @@ export function analyzeAudio(buffer) {
   const fftSize = 2048;
   const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
   const offlineCtx = new OfflineCtx(1, buffer.length, sampleRate);
-  
+
   const source = offlineCtx.createBufferSource();
   const analyser = offlineCtx.createAnalyser();
   analyser.fftSize = fftSize;
@@ -89,7 +89,7 @@ export function analyzeAudio(buffer) {
 
     let zeroCrossings = 0;
     for (let i = 1; i < data.length; i++) {
-      if ((data[i] >= 0 && data[i-1] < 0) || (data[i] < 0 && data[i-1] >= 0)) zeroCrossings++;
+      if ((data[i] >= 0 && data[i - 1] < 0) || (data[i] < 0 && data[i - 1] >= 0)) zeroCrossings++;
     }
     const zcr = zeroCrossings / duration;
     const tempoEstimate = Math.min(1, zcr / 200);
@@ -121,7 +121,7 @@ export function analyzeAudio(buffer) {
 
 export function togglePlayback() {
   if (!state.audioElement.src) return;
-  
+
   // Browsers require a user gesture to resume the AudioContext
   if (state.audioContext && state.audioContext.state === "suspended") {
     state.audioContext.resume();
